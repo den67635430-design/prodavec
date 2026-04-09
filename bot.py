@@ -119,9 +119,52 @@ async def handle_shtab_message(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.error(e)
         await update.message.reply_text("❌ Ошибка в Штабе: " + str(e)[:100])
 
+
+async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработать голосовое сообщение - транскрибировать и обработать как текст"""
+    if not update.message.voice:
+        return
+    
+    try:
+        # Скачать аудио
+        voice_file = await context.bot.get_file(update.message.voice.file_id)
+        audio_path = f"/tmp/voice_{update.message.message_id}.ogg"
+        await voice_file.download_to_drive(audio_path)
+        
+        # Отправить "печатает..."
+        await context.bot.send_chat_action(
+            chat_id=update.effective_chat.id,
+            action="typing"
+        )
+        
+        # Транскрибировать
+        try:
+            import speech_recognition as sr
+            recognizer = sr.Recognizer()
+            with sr.AudioFile(audio_path) as source:
+                audio_data = recognizer.record(source)
+            text = recognizer.recognize_google(audio_data, language="ru-RU")
+            logger.info(f"[VOICE] Transcribed: {text}")
+            await update.message.reply_text(f"Услышал: {text}")
+            
+            # Теперь обработать как обычное текстовое сообщение
+            update.message.text = text
+            # Вызовем обработчик текста (если он есть)
+            
+        except sr.UnknownValueError:
+            await update.message.reply_text("❌ Не разобрал речь")
+        except ImportError:
+            os.system("pip3 install --break-system-packages -q speech_recognition pydub 2>/dev/null")
+            await update.message.reply_text("🔧 Инициализирую распознавание...")
+    except Exception as e:
+        logger.error(f"Voice error: {e}")
+
+
+
 def main():
     os.makedirs("/root/prodavec", exist_ok=True)
     app = Application.builder().token(BOT_TOKEN).build()
+    app.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("clear", cmd_clear))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -131,3 +174,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
